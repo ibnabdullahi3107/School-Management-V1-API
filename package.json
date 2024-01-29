@@ -1,0 +1,11 @@
+{
+  "name": "school-management-v1-api",
+  "version": "1.0.0",
+  "description": "A comprehensive API for managing school-related data, including sessions, terms, calensers, classes, school fess etc. Built with Express and PosgreSQL, the API serves as the backend for a school management system",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "HumSad",
+  "license": "ISC"
+}
