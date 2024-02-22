@@ -5,6 +5,8 @@ module.exports = (sequelize, DataTypes) => {
   class Session extends Model {
     static associate(models) {
       // You can define associations with other models here if needed
+      Session.hasMany(models.Term, { foreignKey: "session_id" });
+
     }
   }
 

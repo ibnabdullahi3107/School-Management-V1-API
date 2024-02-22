@@ -4,27 +4,16 @@ module.exports = (sequelize, DataTypes) => {
   class Student extends Model {
     static associate(models) {
       // Define associations
-      Student.belongsTo(models.Class, {
-        foreignKey: "class_id",
-        allowNull: false,
+      Student.hasMany(models.Enrollment, {
+        foreignKey: "student_id", // Use the correct foreign key
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
       });
-      Student.belongsTo(models.Term, {
-        foreignKey: "term_id",
-        allowNull: false,
-      });
-      Student.belongsTo(models.Session, {
-        foreignKey: "session_id",
-        allowNull: false,
-      });
-      // Student.belongsTo(models.SchoolFee, {
-      //   foreignKey: "school_fee_id",
-      //   allowNull: false,
-      // });
     }
   }
   Student.init(
     {
-      registration_number: {
+      reg_number: {
         type: DataTypes.STRING,
         unique: true,
         allowNull: false,
@@ -57,38 +46,19 @@ module.exports = (sequelize, DataTypes) => {
           isDate: true,
         },
       },
-      class_id: {
-        type: DataTypes.INTEGER,
+      is_active: {
+        type: DataTypes.BOOLEAN,
         allowNull: false,
-        references: {
-          model: "Class",
-          key: "id",
+        defaultValue: true,
+      },
+      gender: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        validate: {
+          notNull: true,
+          notEmpty: true,
         },
       },
-      term_id: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-          model: "Term",
-          key: "id",
-        },
-      },
-      session_id: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-          model: "Session",
-          key: "id",
-        },
-      },
-      // school_fee_id: {
-      //   type: DataTypes.INTEGER,
-      //   allowNull: false,
-      //   references: {
-      //     model: "SchoolFee",
-      //     key: "id",
-      //   },
-      // },
       address: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -97,7 +67,7 @@ module.exports = (sequelize, DataTypes) => {
           notEmpty: true,
         },
       },
-      lga: {
+      local_government_area: {
         type: DataTypes.STRING,
         allowNull: false,
         validate: {
@@ -141,8 +111,11 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       sequelize,
+      tableName: "Students",
       modelName: "Student",
+      timestamps: true,
     }
   );
+
   return Student;
 };

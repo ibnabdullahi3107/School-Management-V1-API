@@ -1,32 +1,22 @@
 const { StatusCodes } = require("http-status-codes");
 const { Class } = require("../../models");
-const { Session, Term } = require("../../models");
+
+const { BadRequestError, NotFoundError } = require("../errors");
 
 const yup = require("yup");
 
 const createClass = async (req, res) => {
-  try {
-    const { class_name, session_id, term_id } = req.body;
+  const { class_name } = req.body;
 
-    const newClass = await Class.create({
-      class_name,
-      session_id,
-      term_id,
-    });
+  const newClass = await Class.create({
+    class_name,
+  });
 
-    res.status(StatusCodes.CREATED).json({
-      success: true,
-      message: "Class created successfully",
-      class: newClass,
-    });
-  } catch (error) {
-    console.error("Error creating class:", error);
-    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-      success: false,
-      message: "Internal Server Error",
-      error: error.message,
-    });
-  }
+  res.status(StatusCodes.CREATED).json({
+    success: true,
+    message: "Class created successfully",
+    class: newClass,
+  });
 };
 
 const getAllClassSchema = yup.object().shape({
@@ -37,102 +27,101 @@ const getAllClassSchema = yup.object().shape({
     .oneOf(["latest", "oldest", "a-z", "z-a"], "Invalid sort value"),
   page: yup.number().integer().positive().optional(),
   limit: yup.number().integer().positive().optional(),
-  class_name: yup.string().max(255).optional(), 
+  class_name: yup.string().max(255).optional(),
 });
 
 const getAllClass = async (req, res) => {
-  try {
-    await getAllClassSchema.validate(req.query);
+  await getAllClassSchema.validate(req.query);
 
-    const { status, sort } = req.query;
+  const { status, sort, page = 1, limit = 10 } = req.query;
 
-    const queryObject = {};
-
-    // Check if req.user is defined before accessing its properties
-    if (req.user && req.user.userId) {
-      queryObject.createdBy = req.user.userId;
-    }
-
-    if (status && status !== "all") {
-      queryObject.status = status;
-    }
-
-    let classes = await Class.findAll({
-      where: queryObject,
-      include: [
-        { model: Session, attributes: ["id", "sessionName", "isActive"] },
-        { model: Term, attributes: ["id", "term_name", "isActive"] },
-      ],
-      order: [], // Add your order conditions here based on 'sort' parameter
-      offset: 0, // Set your offset value based on pagination
-      limit: 10, // Set your limit value based on pagination
-    });
-
-    if (sort === "latest") {
-      // Apply sorting logic if needed
-    } else if (sort === "oldest") {
-      // Apply sorting logic if needed
-    } else if (sort === "a-z") {
-      // Apply sorting logic if needed
-    } else if (sort === "z-a") {
-      // Apply sorting logic if needed
-    }
-
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    // Apply pagination
-    classes = classes.slice(offset, offset + limit);
-
-    // Fetch the total count for pagination
-    const totalClasses = await Class.count({ where: queryObject });
-    const numOfPages = Math.ceil(totalClasses / limit);
-
-    res.status(StatusCodes.OK).json({ classes, totalClasses, numOfPages });
-  } catch (error) {
-    res.status(StatusCodes.BAD_REQUEST).json({ error: error.message });
+  const queryObject = {};
+  if (status && status !== "all") {
+    queryObject.status = status;
   }
+
+  // Define sorting order
+  let order = [["createdAt", "DESC"]]; // Default sorting
+  switch (sort) {
+    case "latest":
+      order = [["createdAt", "DESC"]];
+      break;
+    case "oldest":
+      order = [["createdAt", "ASC"]];
+      break;
+    case "a-z":
+      order = [["class_name", "ASC"]];
+      break;
+    case "z-a":
+      order = [["class_name", "DESC"]];
+      break;
+  }
+
+  // Pagination parameters
+  const paginationLimit = parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 10;
+  const offset =
+    (parseInt(page, 10) > 0 ? parseInt(page, 10) - 1 : 0) * paginationLimit;
+
+  // Fetch paginated and sorted classes
+  const { count: totalClasses, rows: classes } = await Class.findAndCountAll({
+    where: queryObject,
+    order,
+    offset,
+    limit: paginationLimit,
+  });
+
+  const numOfPages = Math.ceil(totalClasses / paginationLimit);
+
+  res.status(StatusCodes.OK).json({ classes, totalClasses, numOfPages });
 };
 
 const getClass = async (req, res) => {
-  try {
-    const {
-      params: { className },
-    } = req;
+  const { id } = req.params;
 
-    // Validate the query parameters against the schema
-    await getAllClassSchema.validate(req.query);
+  const class_id = await Class.findByPk(id);
 
-    // Retrieve the class by name
-    const singleClass = await Class.findOne({
-      where: { class_name: className },
-    });
-
-    if (!singleClass) {
-      throw new NotFoundError(`No class with name ${className}`);
-    }
-
-    // Send a success response with the retrieved class
-    res.status(StatusCodes.OK).json({
-      success: true,
-      message: "Class retrieved successfully",
-      class: singleClass,
-    });
-  } catch (error) {
-    // Handle validation errors or other errors
-    res
-      .status(StatusCodes.BAD_REQUEST)
-      .json({ success: false, error: error.message });
+  if (!class_id) {
+    throw new NotFoundError(`Class with id ${id} not found`);
   }
+
+  res.status(StatusCodes.OK).json({ class_id });
 };
 
 const updateClass = async (req, res) => {
-  // Implement logic to update a class by ID
+  const { id } = req.params;
+  const { class_name } = req.body;
+
+  if (!class_name) {
+    throw new BadRequestError("Class name is required");
+  }
+
+  const class_id = await Class.findByPk(id);
+
+  if (!class_id) {
+    throw new NotFoundError(`Class with id ${id} not found`);
+  }
+
+  class_id.class_name = class_name;
+
+  await class_id.save();
+
+  res.status(StatusCodes.OK).json({ class_id });
 };
 
 const deleteClass = async (req, res) => {
-  // Implement logic to delete a class by ID
+  const { id } = req.params;
+
+  const class_id = await Class.findByPk(id);
+
+  if (!class_id) {
+       throw new NotFoundError(`Class with id ${id} not found`);
+  }
+
+  await class_id.destroy();
+
+  res
+    .status(StatusCodes.OK)
+    .json({ message: `Class with id ${id} has been deleted` });
 };
 
 module.exports = {

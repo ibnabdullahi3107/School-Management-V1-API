@@ -4,22 +4,34 @@ const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
   class Class extends Model {
     static associate(models) {
-      Class.belongsTo(models.Session, { foreignKey: "session_id" });
-      Class.belongsTo(models.Term, { foreignKey: "term_id" });
+      // define association here
     }
   }
 
   Class.init(
     {
-      class_name: DataTypes.STRING,
-      session_id: DataTypes.INTEGER,
-      term_id: DataTypes.INTEGER,
+      class_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+      },
+      class_name: {
+        type: DataTypes.STRING(50),
+        allowNull: false,
+        unique: true,
+        validate: {
+          notEmpty: true,
+          len: [1, 20],
+        },
+      },
     },
     {
       sequelize,
       modelName: "Class",
+      tableName: "Class",
+      timestamps: true,
     }
   );
-
   return Class;
 };

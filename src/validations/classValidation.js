@@ -1,9 +1,7 @@
 const yup = require("yup");
 
 const createClassSchema = yup.object().shape({
-  class_name: yup.string().required(),
-  session_id: yup.number().required(),
-  term_id: yup.number().required(),
+  class_name: yup.string().required().max(20).min(4),
 });
 
 module.exports = {

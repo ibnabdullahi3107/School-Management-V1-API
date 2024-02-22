@@ -15,7 +15,7 @@ router
   .get(getAllStudents);
 
 router
-  .route("/:registrationNumber([^/]+/[^/]+/[^/]+)")
+  .route("/:reg_number([^/]+/[^/]+/[^/]+)")
   .get(getStudent)
   .patch(updateStudent)
   .delete(deleteStudent);

@@ -18,10 +18,9 @@ const sessionsRouter = require("./routes/sessions");
 const termsRouter = require("./routes/terms");
 const calenderRouter = require("./routes/calendar");
 const classesRouter = require("./routes/classes");
-const schoolFeesRouter = require("./routes/schoolFee");
 const studentsRouter = require("./routes/students");
-const feeStructureRouter = require("./routes/feeStructure");
-const studentFeeAssignmentRouter = require("./routes/studentFeeAssignmen");
+const enrollmentStudentRouter = require("./routes/enrollments");
+
 
 
 // errors handlers
@@ -44,18 +43,13 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-// routes
-// app.use('/api/v1/auth', authRouter);
-// app.use('/api/v1/sessions', authenticateUser, jobsRouter);
 
 app.use("/api/v1/sessions", sessionsRouter);
 app.use("/api/v1/terms", termsRouter);
 app.use("/api/v1/calenders", calenderRouter);
 app.use("/api/v1/classes", classesRouter);
-app.use("/api/v1/school-fees", schoolFeesRouter);
 app.use("/api/v1/students", studentsRouter);
-app.use("/api/v1/fee-structures", feeStructureRouter);
-app.use("/api/v1/student-fee-assignments", studentFeeAssignmentRouter);
+app.use("/api/v1/enrollment-student", enrollmentStudentRouter);
 
 
 

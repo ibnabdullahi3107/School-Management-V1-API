@@ -4,11 +4,8 @@ module.exports = (sequelize, DataTypes) => {
   class Term extends Model {
     static associate(models) {
       // Define association with Session model
-      Term.belongsTo(models.Session, {
-        foreignKey: "session_id",
-        onDelete: "CASCADE", 
-        onUpdate: "CASCADE", 
-      });
+      Term.belongsTo(models.Session, { foreignKey: "session_id" });
+      Term.hasMany(models.Enrollment, { foreignKey: "term_id" });
     }
   }
   Term.init(
