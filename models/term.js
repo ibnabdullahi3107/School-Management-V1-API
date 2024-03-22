@@ -26,7 +26,11 @@ module.exports = (sequelize, DataTypes) => {
       term_name: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
+      },
+      is_completed: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false, 
       },
       start_date: {
         type: DataTypes.DATE,

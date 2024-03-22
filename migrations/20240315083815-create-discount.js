@@ -1,9 +1,9 @@
 "use strict";
-/** @type {import('sequelize-cli').Migration} */
+
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Enrollments", {
-      id: {
+    await queryInterface.createTable("Discounts", {
+      discount_id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
@@ -19,18 +19,8 @@ module.exports = {
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
-      class_id: {
-        type: Sequelize.INTEGER,
-        references: {
-          model: "Class",
-          key: "class_id",
-        },
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
-      },
       session_id: {
         type: Sequelize.INTEGER,
-        allowNull: false,
         references: {
           model: "Sessions",
           key: "session_id",
@@ -40,13 +30,26 @@ module.exports = {
       },
       term_id: {
         type: Sequelize.INTEGER,
-        allowNull: false,
         references: {
           model: "Terms",
           key: "term_id",
         },
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
+      },
+      payment_type_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: {
+          model: "PaymentTypes",
+          key: "payment_type_id",
+        },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      discount_amount: {
+        type: Sequelize.DECIMAL,
+        allowNull: false,
       },
       createdAt: {
         allowNull: false,
@@ -56,19 +59,15 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE,
       },
-      deletedAt: {
-        type: Sequelize.DATE,
-        allowNull: true,
-      },
     });
-    // Add constraints and validations
-    await queryInterface.addConstraint("Enrollments", {
-      fields: ["student_id", "class_id", "term_id"],
+    // Add unique constraint
+    await queryInterface.addConstraint("Discounts", {
       type: "unique",
-      name: "unique_enrollment",
+      fields: ["student_id", "session_id", "term_id"],
+      name: "unique_discount_per_student_session_term",
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("Enrollments");
+    await queryInterface.dropTable("Discounts");
   },
 };

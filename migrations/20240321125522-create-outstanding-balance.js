@@ -1,8 +1,8 @@
-"use strict";
+'use strict';
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Enrollments", {
+    await queryInterface.createTable("OutstandingBalances", {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -19,18 +19,8 @@ module.exports = {
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
-      class_id: {
-        type: Sequelize.INTEGER,
-        references: {
-          model: "Class",
-          key: "class_id",
-        },
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
-      },
       session_id: {
         type: Sequelize.INTEGER,
-        allowNull: false,
         references: {
           model: "Sessions",
           key: "session_id",
@@ -40,13 +30,25 @@ module.exports = {
       },
       term_id: {
         type: Sequelize.INTEGER,
-        allowNull: false,
         references: {
           model: "Terms",
           key: "term_id",
         },
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
+      },
+      payment_type_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: {
+          model: "PaymentTypes",
+          key: "payment_type_id",
+        },
+        onUpdate: "CASCADE",
+        onDelete: "CASCADE",
+      },
+      amount: {
+        type: Sequelize.NUMERIC,
       },
       createdAt: {
         allowNull: false,
@@ -56,19 +58,9 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE,
       },
-      deletedAt: {
-        type: Sequelize.DATE,
-        allowNull: true,
-      },
-    });
-    // Add constraints and validations
-    await queryInterface.addConstraint("Enrollments", {
-      fields: ["student_id", "class_id", "term_id"],
-      type: "unique",
-      name: "unique_enrollment",
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("Enrollments");
-  },
+    await queryInterface.dropTable('OutstandingBalances');
+  }
 };

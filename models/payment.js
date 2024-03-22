@@ -1,35 +1,32 @@
-// enrollment.model.js
-
 "use strict";
-const { Model } = require("sequelize");
-
-module.exports = (sequelize, DataTypes) => {
-  class Enrollment extends Model {
+const { Model, DataTypes } = require("sequelize");
+module.exports = (sequelize) => {
+  class Payment extends Model {
     static associate(models) {
-      Enrollment.belongsTo(models.Student, {
+      Payment.belongsTo(models.Student, {
         foreignKey: "student_id",
-        onUpdate: "CASCADE",
         onDelete: "CASCADE",
-      });
-      Enrollment.belongsTo(models.Class, {
-        foreignKey: "class_id",
         onUpdate: "CASCADE",
-        onDelete: "CASCADE",
       });
-      Enrollment.belongsTo(models.Session, {
+      Payment.belongsTo(models.PaymentType, {
+        foreignKey: "payment_type_id",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      });
+      Payment.belongsTo(models.Session, {
         foreignKey: "session_id",
         onDelete: "CASCADE",
         onUpdate: "CASCADE",
       });
-      Enrollment.belongsTo(models.Term, {
+      Payment.belongsTo(models.Term, {
         foreignKey: "term_id",
-        onUpdate: "CASCADE",
         onDelete: "CASCADE",
+        onUpdate: "CASCADE",
       });
     }
   }
 
-  Enrollment.init(
+  Payment.init(
     {
       student_id: {
         type: DataTypes.INTEGER,
@@ -39,7 +36,7 @@ module.exports = (sequelize, DataTypes) => {
           isInt: true,
         },
       },
-      class_id: {
+      payment_type_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
         validate: {
@@ -63,34 +60,35 @@ module.exports = (sequelize, DataTypes) => {
           isInt: true,
         },
       },
-      createdAt: {
+      amount: {
+        type: DataTypes.DECIMAL,
+        allowNull: false,
+        validate: {
+          notNull: true,
+          isDecimal: true,
+          min: 0,
+        },
+      },
+      amount_type: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      payment_date: {
         type: DataTypes.DATE,
         allowNull: false,
         defaultValue: DataTypes.NOW,
-      },
-      updatedAt: {
-        type: DataTypes.DATE,
-        allowNull: false,
-        defaultValue: DataTypes.NOW,
-      },
-      deletedAt: {
-        type: DataTypes.DATE,
-        allowNull: true,
+        validate: {
+          notNull: true,
+          isDate: true,
+        },
       },
     },
     {
       sequelize,
-      modelName: "Enrollment",
+      modelName: "Payment",
       timestamps: true,
-      paranoid: true,
-      indexes: [
-        {
-          unique: true,
-          fields: ["student_id", "class_id", "session_id", "term_id"],
-        },
-      ],
     }
   );
 
-  return Enrollment;
+  return Payment;
 };

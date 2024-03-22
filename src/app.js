@@ -20,6 +20,9 @@ const calenderRouter = require("./routes/calendar");
 const classesRouter = require("./routes/classes");
 const studentsRouter = require("./routes/students");
 const enrollmentStudentRouter = require("./routes/enrollments");
+const paymentTypeRouter = require("./routes/payment-type");
+const payment = require("./routes/payment");
+const discount = require("./routes/discount");
 
 
 
@@ -43,13 +46,16 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-
 app.use("/api/v1/sessions", sessionsRouter);
 app.use("/api/v1/terms", termsRouter);
 app.use("/api/v1/calenders", calenderRouter);
 app.use("/api/v1/classes", classesRouter);
 app.use("/api/v1/students", studentsRouter);
 app.use("/api/v1/enrollment-student", enrollmentStudentRouter);
+app.use("/api/v1/payment-types", paymentTypeRouter);
+app.use("/api/v1/payment", payment);
+app.use("/api/v1/discount", discount);
+
 
 
 

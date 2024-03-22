@@ -5,10 +5,15 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // Define associations
       Student.hasMany(models.Enrollment, {
-        foreignKey: "student_id", // Use the correct foreign key
+        foreignKey: "student_id",
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       });
+      // Student.hasMany(models.Payment, {
+      //   foreignKey: "student_id",
+      //   onUpdate: "CASCADE",
+      //   onDelete: "CASCADE",
+      // });
     }
   }
   Student.init(

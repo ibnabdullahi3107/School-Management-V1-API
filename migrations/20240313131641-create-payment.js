@@ -2,7 +2,7 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("Enrollments", {
+    await queryInterface.createTable("Payments", {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -19,11 +19,12 @@ module.exports = {
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
-      class_id: {
+      payment_type_id: {
         type: Sequelize.INTEGER,
+        allowNull: false,
         references: {
-          model: "Class",
-          key: "class_id",
+          model: "PaymentTypes",
+          key: "payment_type_id",
         },
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
@@ -48,6 +49,18 @@ module.exports = {
         onUpdate: "CASCADE",
         onDelete: "CASCADE",
       },
+      amount: {
+        type: Sequelize.DECIMAL,
+        allowNull: false,
+      },
+      amount_type: {
+        type: Sequelize.STRING,
+        allowNull: false,
+      },
+      payment_date: {
+        type: Sequelize.DATE,
+        allowNull: false,
+      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,
@@ -56,19 +69,9 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE,
       },
-      deletedAt: {
-        type: Sequelize.DATE,
-        allowNull: true,
-      },
-    });
-    // Add constraints and validations
-    await queryInterface.addConstraint("Enrollments", {
-      fields: ["student_id", "class_id", "term_id"],
-      type: "unique",
-      name: "unique_enrollment",
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("Enrollments");
+    await queryInterface.dropTable("Payments");
   },
 };

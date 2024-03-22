@@ -14,14 +14,18 @@ module.exports = {
         references: {
           model: "Sessions",
           key: "session_id",
-          onUpdate: "CASCADE", 
+          onUpdate: "CASCADE",
           onDelete: "CASCADE",
         },
       },
       term_name: {
         type: Sequelize.STRING,
         allowNull: false,
-        unique: true,
+      },
+      is_completed: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
       },
       start_date: {
         type: Sequelize.DATE,

@@ -1,6 +1,6 @@
 const { StatusCodes } = require("http-status-codes");
 // const moment = require("moment");
-const { Term, Class, Student, Enrollment } = require("../../models");
+const { Session, Term, Class, Student, Enrollment } = require("../../models");
 const { Op } = require("sequelize");
 
 const {
@@ -11,18 +11,17 @@ const {
 const { BadRequestError, NotFoundError } = require("../errors");
 
 const enrollStudent = async (req, res) => {
-  const { student_id, class_id, term_id } = req.body;
+  const { student_id, class_id, session_id, term_id } = req.body;
 
   // Check if the student exists
   const student = await Student.findByPk(student_id);
   if (!student) {
     throw new NotFoundError(`No student found with ID number ${student_id}.`);
   }
-
-  // Check if the class exists
-  const classObj = await Class.findByPk(class_id);
-  if (!classObj) {
-    throw new NotFoundError(`Class with id ${class_id} not found.`);
+  // Check if the session exists
+  const session = await Session.findByPk(session_id);
+  if (!session) {
+    throw new NotFoundError(`No Session with id ${session_id}`);
   }
 
   // Check if the term exists
@@ -31,12 +30,19 @@ const enrollStudent = async (req, res) => {
     throw new NotFoundError(`No term with id ${term_id}.`);
   }
 
+  // Check if the class exists
+  const classObj = await Class.findByPk(class_id);
+  if (!classObj) {
+    throw new NotFoundError(`Class with id ${class_id} not found.`);
+  }
+
   // Check if the student is already enrolled in the class for the term
   const existingEnrollment = await Enrollment.findOne({
     where: {
       student_id: student_id,
-      class_id: class_id,
+      session_id: session_id,
       term_id: term_id,
+      class_id: class_id,
     },
   });
 
@@ -49,13 +55,14 @@ const enrollStudent = async (req, res) => {
   // Create the enrollment
   const enrollment = await Enrollment.create({
     student_id: student_id,
-    class_id: class_id,
+    session_id: session_id,
     term_id: term_id,
+    class_id: class_id,
   });
 
   res.status(StatusCodes.CREATED).json({
     success: true,
-    message: "Enrollment student to class of term created successfully",
+    message: "Enrollment student to class of Session in term created successfully",
     enrollment: enrollment,
   });
 };
@@ -92,6 +99,10 @@ const getAllEnrollStudents = async (req, res) => {
         {
           model: Class,
           attributes: ["class_id", "class_name"],
+        },
+        {
+          model: Session,
+          attributes: ["session_id", "session_name"],
         },
         {
           model: Term,
@@ -140,6 +151,10 @@ const getEnrollStudent = async (req, res) => {
       {
         model: Class,
         attributes: ["class_id", "class_name"],
+      },
+      {
+        model: Session,
+        attributes: ["session_id", "session_name"],
       },
       {
         model: Term,
@@ -196,6 +211,10 @@ const getEnrollStudentsAndCountByTerm = async (req, res) => {
         attributes: ["class_id", "class_name"],
       },
       {
+        model: Session,
+        attributes: ["session_id", "session_name"],
+      },
+      {
         model: Term,
         attributes: ["term_id", "term_name", "start_date", "end_date"],
       },
@@ -246,6 +265,10 @@ const getEnrollStudentsByClass = async (req, res) => {
       {
         model: Class,
         attributes: ["class_id", "class_name"],
+      },
+      {
+        model: Session,
+        attributes: ["session_id", "session_name"],
       },
       {
         model: Term,
@@ -301,6 +324,10 @@ const getEnrollStudentsTermAndClass = async (req, res) => {
           attributes: ["class_id", "class_name"],
         },
         {
+          model: Session,
+          attributes: ["session_id", "session_name"],
+        },
+        {
           model: Term,
           attributes: ["term_id", "term_name", "start_date", "end_date"],
         },
@@ -335,7 +362,7 @@ const getEnrollStudentsTermAndClass = async (req, res) => {
 const updateEnrollStudent = async (req, res) => {
   const { enrollment_id } = req.params;
 
-  const { student_id, class_id, term_id } = req.body;
+  const { student_id, class_id, session_id, term_id } = req.body;
 
   const enrollment = await Enrollment.findByPk(enrollment_id);
 
@@ -349,6 +376,9 @@ const updateEnrollStudent = async (req, res) => {
   }
   if (class_id) {
     enrollment.class_id = class_id;
+  }
+  if(session_id){
+    enrollment.session_id = session_id;
   }
   if (term_id) {
     enrollment.term_id = term_id;

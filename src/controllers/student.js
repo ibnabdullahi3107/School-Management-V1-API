@@ -7,7 +7,16 @@ const {
   getSortingOrder,
 } = require("../services/sortdata");
 
-const { Student, Enrollment, Class, Term } = require("../../models");
+const {
+  Student,
+  Enrollment,
+  Class,
+  Term,
+  Session,
+  Payment,
+  PaymentType,
+  OutstandingBalance,
+} = require("../../models");
 const { updateStudentSchema } = require("../validations/studentValidation");
 
 const { NotFoundError, BadRequestError } = require("../errors");
@@ -47,8 +56,11 @@ const createStudent = async (req, res) => {
     date_of_birth,
     gender,
     address,
-    class_id,
+    session_id,
     term_id,
+    class_id,
+    amount,
+    amount_type,
     local_government_area,
     next_of_kin_name,
     next_of_kin_phone_number,
@@ -78,16 +90,46 @@ const createStudent = async (req, res) => {
     throw new BadRequestError("Student with similar details already exists");
   }
 
+  // Check if the session exists
+  const session = await Session.findByPk(session_id);
+  if (!session) {
+    throw new NotFoundError(`No Session with id ${session_id}`);
+  }
+
+  // Check if the term exists and belongs to the specified session
+  const term = await Term.findOne({
+    where: {
+      term_id,
+      session_id: session_id,
+    },
+  });
+
+  if (!term) {
+    throw new NotFoundError(
+      `No term with id ${term_id} in session ${session_id}`
+    );
+  }
+
   // Check if the class exists
   const classObj = await Class.findByPk(class_id);
   if (!classObj) {
     throw new NotFoundError(`Class with id ${class_id} not found`);
   }
 
-  // Check if the term exists
-  const term = await Term.findByPk(term_id);
-  if (!term) {
-    throw new NotFoundError(`No term with id ${term_id}`);
+  // Create payment for school registration
+  const registrationPaymentType = await PaymentType.findOne({
+    where: { payment_type_name: "School Registration" },
+  });
+  if (!registrationPaymentType) {
+    throw new NotFoundError('Payment type "School Registration" not found');
+  }
+
+  // Create payment for school fees
+  const schoolFeesPaymentType = await PaymentType.findOne({
+    where: { payment_type_name: "School Fees" },
+  });
+  if (!schoolFeesPaymentType) {
+    throw new NotFoundError('Payment type "School Fees" not found');
   }
 
   // Generate the registration number
@@ -111,17 +153,99 @@ const createStudent = async (req, res) => {
   // Enroll the student in the specified class and term
   const newEnrollmentStudent = await Enrollment.create({
     student_id: newStudent.id,
-    class_id,
+    session_id,
     term_id,
+    class_id,
   });
 
-  res.status(StatusCodes.CREATED).json({
+  let registrationPayment;
+
+  if (amount) {
+    // Check if the provided amount is enough to cover the registration fee
+    if (amount >= registrationPaymentType.amount) {
+      // Deduct the registration fee from the provided amount
+      const remainingAmount = amount - registrationPaymentType.amount;
+
+      // Pay the school registration
+      registrationPayment = await Payment.create({
+        student_id: newStudent.id,
+        payment_type_id: registrationPaymentType.payment_type_id,
+        amount: registrationPaymentType.amount,
+        amount_type,
+        session_id,
+        term_id,
+      });
+
+      // Check if there's enough remaining amount to cover the school fees
+      if (remainingAmount >= schoolFeesPaymentType.amount) {
+        // Pay the school fees
+        schoolFeesPayment = await Payment.create({
+          student_id: newStudent.id,
+          payment_type_id: schoolFeesPaymentType.payment_type_id,
+          amount: schoolFeesPaymentType.amount,
+          amount_type,
+          session_id,
+          term_id,
+        });
+      } else {
+        // Add the outstanding balance for the remaining amount in school fees
+        schoolFeesPayment = await Payment.create({
+          student_id: newStudent.id,
+          payment_type_id: schoolFeesPaymentType.payment_type_id,
+          amount: remainingAmount,
+          amount_type,
+          session_id,
+          term_id,
+        });
+
+        // Record the remaining amount as an outstanding balance for the school fees
+        const outstandingAmount =
+          schoolFeesPaymentType.amount - remainingAmount;
+        await OutstandingBalance.create({
+          student_id: newStudent.id,
+          term_id,
+          session_id,
+          payment_type_id: schoolFeesPaymentType.payment_type_id,
+          amount: outstandingAmount,
+        });
+      }
+    } else {
+      throw new BadRequestError(
+        "Insufficient amount to cover the registration fee"
+      );
+    }
+  } else {
+    throw new NotFoundError(
+      "Please provide the amount for both Reg. & School fees"
+    );
+  }
+
+
+  // Fetch outstanding balances if they exist
+  const outstandingBalances = await OutstandingBalance.findAll({
+    where: {
+      student_id: newStudent.id,
+    },
+  });
+
+  // Prepare the response object
+  const response = {
     success: true,
     message: "Student created and enrolled successfully",
     student: newStudent,
     Enrollment: newEnrollmentStudent,
-  });
+    registrationPayment, 
+    schoolFeesPayment, 
+  };
+
+  // Include outstanding balances in the response if they exist
+  if (outstandingBalances.length > 0) {
+    response.outstandingBalances = outstandingBalances;
+  }
+
+  res.status(StatusCodes.CREATED).json(response);
 };
+
 
 const getAllStudents = async (req, res) => {
   try {
