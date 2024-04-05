@@ -7,6 +7,10 @@ const {
   getSortingOrder,
 } = require("../services/sortdata");
 
+const { generateReceiptNumber } = require("../services/generateReceiptNumber");
+const { getReceiptData } = require("../services/getReceiptData");
+const { generateRegistrationNumber } = require("../services/generateRegistrationNumber");
+
 const {
   Student,
   Enrollment,
@@ -16,38 +20,13 @@ const {
   Payment,
   PaymentType,
   OutstandingBalance,
+  Discount,
+  Receipt,
 } = require("../../models");
 const { updateStudentSchema } = require("../validations/studentValidation");
 
 const { NotFoundError, BadRequestError } = require("../errors");
 
-// Function to generate registration number
-const generateRegistrationNumber = async () => {
-  // IHN is a constant
-  const constantPart = "IHN";
-
-  // Get the current year
-  const currentYear = new Date().getFullYear();
-
-  // Find the count of students registered in the current year
-  const count = await Student.count({
-    where: {
-      reg_number: {
-        [Op.startsWith]: `${constantPart}/${currentYear}`,
-      },
-    },
-  });
-
-  // Increment the count for the current year to create a unique registration number
-  const uniqueNumber = count + 1001;
-
-  // Format the registration number
-  const registrationNumber = `${constantPart}/${currentYear}/${uniqueNumber
-    .toString()
-    .padStart(4, "0")}`;
-
-  return registrationNumber;
-};
 
 const createStudent = async (req, res) => {
   const {
@@ -61,6 +40,7 @@ const createStudent = async (req, res) => {
     class_id,
     amount,
     amount_type,
+    discount_amount,
     local_government_area,
     next_of_kin_name,
     next_of_kin_phone_number,
@@ -132,6 +112,12 @@ const createStudent = async (req, res) => {
     throw new NotFoundError('Payment type "School Fees" not found');
   }
 
+  // if (!discount_amount) {
+  //   throw new BadRequestError(
+  //     "Discount amount is required and should be positive"
+  //   );
+  // }
+
   // Generate the registration number
   const reg_number = await generateRegistrationNumber();
 
@@ -158,13 +144,13 @@ const createStudent = async (req, res) => {
     class_id,
   });
 
-  let registrationPayment;
+  let registrationPayment, studentDiscount, studentOutstanding, remainingAmount;
 
   if (amount) {
     // Check if the provided amount is enough to cover the registration fee
     if (amount >= registrationPaymentType.amount) {
       // Deduct the registration fee from the provided amount
-      const remainingAmount = amount - registrationPaymentType.amount;
+      remainingAmount = amount - registrationPaymentType.amount;
 
       // Pay the school registration
       registrationPayment = await Payment.create({
@@ -176,17 +162,32 @@ const createStudent = async (req, res) => {
         term_id,
       });
 
+      const remainingAmountWithDiscount = remainingAmount + discount_amount;
+
       // Check if there's enough remaining amount to cover the school fees
-      if (remainingAmount >= schoolFeesPaymentType.amount) {
+      if (remainingAmountWithDiscount >= schoolFeesPaymentType.amount) {
         // Pay the school fees
         schoolFeesPayment = await Payment.create({
           student_id: newStudent.id,
           payment_type_id: schoolFeesPaymentType.payment_type_id,
-          amount: schoolFeesPaymentType.amount,
+          amount: remainingAmount,
           amount_type,
           session_id,
           term_id,
         });
+
+        if (!discount_amount <= 0) {
+          // Create the discount
+          studentDiscount = await Discount.create({
+            student_id: newStudent.id,
+            session_id,
+            term_id,
+            payment_type_id: schoolFeesPaymentType.payment_type_id,
+            discount_amount,
+          });
+
+        }
+
       } else {
         // Add the outstanding balance for the remaining amount in school fees
         schoolFeesPayment = await Payment.create({
@@ -198,10 +199,22 @@ const createStudent = async (req, res) => {
           term_id,
         });
 
+         if (!discount_amount <= 0) {
+           // Create the discount
+           studentDiscount = await Discount.create({
+             student_id: newStudent.id,
+             session_id,
+             term_id,
+             payment_type_id: schoolFeesPaymentType.payment_type_id,
+             discount_amount,
+           });
+
+         }
+
         // Record the remaining amount as an outstanding balance for the school fees
         const outstandingAmount =
-          schoolFeesPaymentType.amount - remainingAmount;
-        await OutstandingBalance.create({
+          schoolFeesPaymentType.amount - remainingAmountWithDiscount;
+        studentOutstanding = await OutstandingBalance.create({
           student_id: newStudent.id,
           term_id,
           session_id,
@@ -216,36 +229,51 @@ const createStudent = async (req, res) => {
     }
   } else {
     throw new NotFoundError(
-      "Please provide the amount for both Reg. & School fees"
+      "Please provide the amount for both Registration and School fees"
     );
   }
 
+  // Generate receipt numbers for registration and school fees payments
+  const registrationReceiptNumber = await generateReceiptNumber();
 
-  // Fetch outstanding balances if they exist
-  const outstandingBalances = await OutstandingBalance.findAll({
-    where: {
-      student_id: newStudent.id,
-    },
+  // Create receipts for registration and school fees payments
+  const registrationReceipt = await Receipt.create({
+    receipt_number: registrationReceiptNumber,
+    student_id: newStudent.id,
+    payment_id: registrationPayment.id,
+    discount_id: studentDiscount ? studentDiscount.discount_id : null,
+    outstanding_id: null,
+    class_id: newEnrollmentStudent.id,
+    amount_paid: registrationPaymentType.amount,
   });
+
+  const registrationReceiptData = await getReceiptData(registrationReceipt);
+
+  const schoolFeesReceiptNumber = await generateReceiptNumber();
+
+  const schoolFeesReceipt = await Receipt.create({
+    receipt_number: schoolFeesReceiptNumber,
+    student_id: newStudent.id,
+    payment_id: schoolFeesPayment.id,
+    discount_id: studentDiscount ? studentDiscount.discount_id : null,
+    outstanding_id: studentOutstanding ? studentOutstanding.id : null,
+    class_id: newEnrollmentStudent.id,
+    amount_paid: remainingAmount,
+  });
+
+  // Fetch additional information related to the registration receipt
+  const schoolFeesReceiptData = await getReceiptData(schoolFeesReceipt);
 
   // Prepare the response object
   const response = {
     success: true,
     message: "Student created and enrolled successfully",
-    student: newStudent,
-    Enrollment: newEnrollmentStudent,
-    registrationPayment, 
-    schoolFeesPayment, 
+    registrationReceiptData,
+    schoolFeesReceiptData,
   };
-
-  // Include outstanding balances in the response if they exist
-  if (outstandingBalances.length > 0) {
-    response.outstandingBalances = outstandingBalances;
-  }
 
   res.status(StatusCodes.CREATED).json(response);
 };
-
 
 const getAllStudents = async (req, res) => {
   try {

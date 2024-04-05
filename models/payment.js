@@ -66,7 +66,7 @@ module.exports = (sequelize) => {
         validate: {
           notNull: true,
           isDecimal: true,
-          min: 0,
+          // min: 0,
         },
       },
       amount_type: {
@@ -82,6 +82,11 @@ module.exports = (sequelize) => {
           isDate: true,
         },
       },
+      regular_payment: { 
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true
+      }
     },
     {
       sequelize,

@@ -9,6 +9,7 @@ const {
   Enrollment,
   PaymentType,
   OutstandingBalance,
+  Receipt,
 } = require("../../models");
 const { Op } = require("sequelize");
 
@@ -16,6 +17,15 @@ const {
   applySortingAndPagination,
   getSortingOrder,
 } = require("../services/sortdata");
+
+const {
+  handleOutstandingBalances,
+} = require("../services/handleOutstandingBalances");
+const {
+  determineSessionAndTerm,
+} = require("../services/determineSessionAndTerm");
+const { getReceiptData } = require("../services/getReceiptData");
+const { generateReceiptNumber } = require("../services/generateReceiptNumber");
 
 const { BadRequestError, NotFoundError } = require("../errors");
 
@@ -63,205 +73,93 @@ const create_Process_Payment = async (req, res) => {
       payment_type_id,
       amount,
       lastPayment.session_id,
-      lastPayment.term_id
+      lastPayment.term_id,
+      amount_type
     );
   }
 
   const paymentTypeAmount = paymentType.amount;
 
+  let paymentReceipt;
+
+  // fetch receipt in the payment receipt 
+
+  const enrollmentStudent = await Enrollment.findByPk(student_id);
+
+  // Generate receipt numbers for payment
+  const receiptNumber = await generateReceiptNumber();
+
   // If there's a remaining amount after deducting outstanding balances
   if (remainingAmount > 0) {
+    let payment;
     // Check if the remaining amount is sufficient to pay for another term
     if (remainingAmount >= paymentTypeAmount) {
       // Pay for the current term
-      await Payment.create({
+      payment = await Payment.create({
         student_id,
         payment_type_id,
         amount: paymentTypeAmount,
         amount_type,
         session_id,
         term_id,
+        regular_payment: true, // Indicate deduction in status Regular Payment as true
+      });
+
+      // Create receipts for payments
+      paymentReceipt = await Receipt.create({
+        receipt_number: receiptNumber,
+        student_id,
+        payment_id: payment.id,
+        discount_id: null,
+        outstanding_id: null,
+        class_id: enrollmentStudent.id,
+        amount_paid: paymentTypeAmount,
       });
     } else {
       // Pay for the remaining amount in another term and move the rest to outstanding
       const remainingTermAmount = paymentTypeAmount - remainingAmount;
-      await Payment.create({
+      payment = await Payment.create({
         student_id,
         payment_type_id,
         amount: remainingAmount,
         amount_type,
         session_id,
         term_id,
+        regular_payment: true, // Indicate deduction in status Regular Payment as true
       });
       // Move the rest amount to outstanding balances
-      await OutstandingBalance.create({
+      const studentOutstanding = await OutstandingBalance.create({
         student_id,
         payment_type_id,
         amount: remainingTermAmount,
         session_id,
         term_id,
       });
+
+      // Create receipts for payments
+      paymentReceipt = await Receipt.create({
+        receipt_number: receiptNumber,
+        student_id,
+        payment_id: payment.id,
+        discount_id: null,
+        outstanding_id: studentOutstanding ? studentOutstanding.id : null,
+        class_id: enrollmentStudent.id,
+        amount_paid: remainingAmount,
+      });
     }
   }
 
-  res.status(StatusCodes.CREATED).json({
+  // Fetch additional information related to receipt
+  const receiptData = await getReceiptData(paymentReceipt);
+
+  const response = {
     success: true,
     message: "Payment created successfully",
-    payment: {
-      student_id,
-      payment_type_id,
-      amount,
-      amount_type,
-    },
-  });
+    receiptData,
+  };
+
+  res.status(StatusCodes.CREATED).json(response);
 };
-
-const handleOutstandingBalances = async (
-  student_id,
-  payment_type_id,
-  amount,
-  session_id,
-  term_id
-) => {
-  let remainingAmount = amount;
-  let totalDeducted = 0;
-
-  // Retrieve outstanding balances for the same payment type
-  const outstandingBalances = await OutstandingBalance.findAll({
-    where: {
-      student_id,
-      payment_type_id,
-    },
-  });
-
-  // Deduct outstanding balances from the amount
-  for (const balance of outstandingBalances) {
-    const balanceAmount = balance.amount;
-    if (balanceAmount <= remainingAmount) {
-      // Fully paid outstanding balance
-      await balance.destroy();
-      totalDeducted += balanceAmount;
-      remainingAmount -= balanceAmount;
-    } else {
-      // Partially paid outstanding balance
-      await balance.decrement("amount", { by: remainingAmount });
-      totalDeducted += remainingAmount;
-      remainingAmount = 0;
-    }
-
-    if (remainingAmount === 0) {
-      // Break out of the loop if the full amount has been deducted
-      break;
-    }
-  }
-
-  // Update payment ID of the payment amount to be the actual amount
-  const paymentToUpdate = await Payment.findOne({
-    where: {
-      student_id,
-      payment_type_id,
-      session_id,
-      term_id,
-    },
-  });
-
-  if (paymentToUpdate) {
-    // Parse the amount from string to number
-    const currentAmount = parseFloat(paymentToUpdate.amount);
-    const deductedAmount = parseFloat(totalDeducted);
-    const updatedAmount = currentAmount + deductedAmount;
-
-    // Update the payment amount
-    await paymentToUpdate.update({ amount: updatedAmount });
-  }
-
-  // Return the remaining amount
-  return remainingAmount;
-};
-
-// const updateTermStatus = async (session_id, term_id, student_id) => {
-//   const term = await Term.findOne({ where: { session_id, term_id } });
-//   if (!term) {
-//     throw new NotFoundError(
-//       `Term with session ID ${session_id} and term ID ${term_id} not found.`
-//     );
-//   }
-
-//   const enrollments = await Enrollment.findAll({
-//     where: { session_id, term_id, student_id },
-//   });
-//   if (!enrollments || enrollments.length === 0) {
-//     throw new NotFoundError(
-//       `No enrollment found for student ${student_id} in term ${term_id} of session ${session_id}.`
-//     );
-//   }
-
-//   // Check if all enrollments are paid
-//   const allEnrollmentsPaid = enrollments.every(
-//     (enrollment) => enrollment.is_paid
-//   );
-
-//   if (allEnrollmentsPaid) {
-//     // Update term status to completed
-//     await term.update({ is_completed: true });
-//   }
-// };
-
-// Function to determine session_id and term_id
-const determineSessionAndTerm = async (student_id, lastPayment) => {
-  // Retrieve the session_id and term_id of the last payment
-  const { session_id: lastSessionID, term_id: lastTermID } = lastPayment;
-
-  // Check for the next term within the current session
-  const nextTerm = await Term.findOne({
-    where: {
-      session_id: lastSessionID,
-      term_id: { [Op.gt]: lastTermID },
-    },
-    order: [["term_id", "ASC"]],
-  });
-
-  // If there's a next term within the current session, return its session_id and term_id
-  if (nextTerm) {
-    return { session_id: lastSessionID, term_id: nextTerm.term_id };
-  }
-
-  // If there's no next term within the current session, check for the next session
-  const nextSession = await Session.findOne({
-    where: { session_id: { [Op.gt]: lastSessionID } },
-    order: [["session_id", "ASC"]],
-  });
-
-  // If there's a next session, use the first term of the next session
-  if (nextSession) {
-    const firstTermOfNextSession = await Term.findOne({
-      where: { session_id: nextSession.session_id },
-      order: [["term_id", "ASC"]],
-    });
-
-    // If there's a first term for the next session, return its session_id and term_id
-    if (firstTermOfNextSession) {
-      return {
-        session_id: nextSession.session_id,
-        term_id: firstTermOfNextSession.term_id,
-      };
-    }
-  }
-
-  // If no more sessions are available for payment, throw an error
-  throw new BadRequestError("No more sessions available for payment.");
-};
-
-async function getPaymentTypeName(paymentTypeId) {
-  try {
-    const paymentType = await PaymentType.findByPk(paymentTypeId);
-    return paymentType ? paymentType.payment_type_name : null;
-  } catch (error) {
-    // Handle errors appropriately
-    console.error("Error while retrieving payment type name:", error);
-    return null;
-  }
-}
 
 const getAll_Process_Payment = async (req, res) => {
   const {

@@ -3,7 +3,7 @@ const { StatusCodes } = require("http-status-codes");
 const {
   Payment,
   Student,
-  Class,
+  OutstandingBalance,
   Term,
   PaymentType,
   Discount,
@@ -19,54 +19,66 @@ const {
 const { BadRequestError, NotFoundError } = require("../errors");
 
 const create_Process_Discount = async (req, res) => {
-  const {
-    student_id,
-    session_id,
-    term_id,
-    payment_type_id,
-    discount_amount,
-  } = req.body;
+  const { student_id, payment_type_id, discount_amount } = req.body;
 
-  // Check if the discount already exists for the given combination
-  const existingDiscount = await Discount.findOne({
-    where: {
-      student_id,
-      session_id,
-      term_id,
-      payment_type_id,
-    },
-  });
-
-  if (existingDiscount) {
-    return res.status(StatusCodes.CONFLICT).json({
-      success: false,
-      error: "A discount already exists for this combination",
-    });
-  }
-
-  // Check if the provided student, session, term, and payment type IDs exist
-  const [student, session, term, paymentType] = await Promise.all([
+  // Check if the provided student and payment type IDs exist
+  const [student, paymentType, outstandingBalance] = await Promise.all([
     Student.findByPk(student_id),
-    Session.findByPk(session_id),
-    Term.findByPk(term_id),
     PaymentType.findByPk(payment_type_id),
+    OutstandingBalance.findOne({
+      where: {
+        student_id,
+        payment_type_id,
+      },
+    }),
   ]);
 
   if (!student) {
     throw new NotFoundError(`No student found with ID number ${student_id}.`);
   }
 
-  if (!session) {
-    throw new NotFoundError(`No session found with ID number ${session_id}.`);
-  }
-
-  if (!term) {
-    throw new NotFoundError(`No term found with ID number ${term_id}.`);
-  }
-
   if (!paymentType) {
     throw new NotFoundError(
       `No payment type found with ID number ${payment_type_id}.`
+    );
+  }
+
+  let session_id, term_id;
+
+  if (outstandingBalance) {
+    // Retrieve session_id and term_id from the outstanding balance
+    session_id = outstandingBalance.session_id;
+    term_id = outstandingBalance.term_id;
+
+    // Check if the discount already exists for the given combination
+    const existingDiscount = await Discount.findOne({
+      where: {
+        student_id,
+        payment_type_id,
+        session_id,
+        term_id,
+      },
+    });
+
+    if (existingDiscount) {
+      return res.status(StatusCodes.CONFLICT).json({
+        success: false,
+        error: "A discount already exists for this combination",
+      });
+    }
+
+    // Deduct discount amount from outstanding balance
+    const updatedAmount = outstandingBalance.amount - discount_amount;
+    if (updatedAmount <= 0) {
+      // If the updated amount is zero or negative, delete the outstanding balance
+      await outstandingBalance.destroy();
+    } else {
+      // Otherwise, update the outstanding balance with the remaining amount
+      await outstandingBalance.update({ amount: updatedAmount });
+    }
+  } else {
+    throw new NotFoundError(
+      `No outstanding balance found for student with ID number ${student_id}.`
     );
   }
 
@@ -192,32 +204,7 @@ const get_Process_Discount = async (req, res) => {
 };
 
 const update_Process_Discount = async (req, res) => {
-  const {
-    params: { id },
-    body: updateFields,
-  } = req;
-
-  let discount = await Discount.findByPk(id);
-
-  if (!discount) {
-    throw new NotFoundError(`Discount with ID ${id} not found.`);
-  }
-
-  // Validate and update each attribute
-  for (const key in updateFields) {
-    if (Object.hasOwnProperty.call(updateFields, key)) {
-      discount[key] = updateFields[key];
-    }
-  }
-
-  // Save the updated discount
-  await discount.save();
-
-  res.status(StatusCodes.OK).json({
-    success: true,
-    message: "Discount updated successfully",
-    discount: discount,
-  });
+ 
 };
 
 const delete_Process_Discount = async (req, res) => {

@@ -1,7 +1,7 @@
 "use strict";
-/** @type {import('sequelize-cli').Migration} */
+
 module.exports = {
-  async up(queryInterface, Sequelize) {
+  up: async (queryInterface, Sequelize) => {
     await queryInterface.createTable("Enrollments", {
       id: {
         allowNull: false,
@@ -21,6 +21,7 @@ module.exports = {
       },
       class_id: {
         type: Sequelize.INTEGER,
+        allowNull: false,
         references: {
           model: "Class",
           key: "class_id",
@@ -61,14 +62,16 @@ module.exports = {
         allowNull: true,
       },
     });
-    // Add constraints and validations
+
+    // Add a unique constraint for the combination of keys
     await queryInterface.addConstraint("Enrollments", {
-      fields: ["student_id", "class_id", "term_id"],
+      fields: ["student_id", "class_id", "session_id", "term_id"],
       type: "unique",
       name: "unique_enrollment",
     });
   },
-  async down(queryInterface, Sequelize) {
+
+  down: async (queryInterface, Sequelize) => {
     await queryInterface.dropTable("Enrollments");
   },
 };
