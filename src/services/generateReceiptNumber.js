@@ -44,7 +44,6 @@ const generateRandomNumber = (length) => {
   return randomNumber.replace(/\D/g, () => Math.floor(Math.random() * 10));
 };
 
-
 // Function to generate a checksum digit for validation
 const generateChecksum = (receiptNumber) => {
   const digits = receiptNumber.split("").map(Number);

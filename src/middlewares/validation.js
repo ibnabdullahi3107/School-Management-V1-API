@@ -6,6 +6,8 @@ const enrollmentValidation = require("../validations/enrollmentValidation");
 const paymentTypeValidation = require("../validations/paymentTypeValidation");
 const paymentValidation = require("../validations/paymentValidation");
 const discountValidation = require("../validations/discountValidation");
+const accountValidation = require("../validations/accountValidation");
+
 
 
 const { validateSchema } = require("./validationMiddleware");
@@ -40,6 +42,10 @@ const validateCreateDiscount = validateSchema(
   discountValidation.discountValidationSchema
 );
 
+const validateCreateAccount = validateSchema(
+  accountValidation.createAccountSchema
+);
+
 module.exports = {
   validateCreateSession,
   validateUpdateSession,
@@ -51,4 +57,5 @@ module.exports = {
   validateCreatePaymentType,
   validateCreatePayment,
   validateCreateDiscount,
+  validateCreateAccount,
 };

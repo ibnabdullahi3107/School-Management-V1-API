@@ -23,6 +23,13 @@ const enrollmentStudentRouter = require("./routes/enrollments");
 const paymentTypeRouter = require("./routes/payment-type");
 const payment = require("./routes/payment");
 const discount = require("./routes/discount");
+const account = require("./routes/account");
+const paymentTypeAccount = require("./routes/linkAccount_Payment_type");
+const paymentRecords = require("./routes/payment_record");
+const receipt_records = require("./routes/receipt_record");
+const transaction_records = require("./routes/transaction_record");
+
+
 
 
 
@@ -55,6 +62,15 @@ app.use("/api/v1/enrollment-student", enrollmentStudentRouter);
 app.use("/api/v1/payment-types", paymentTypeRouter);
 app.use("/api/v1/payment", payment);
 app.use("/api/v1/discount", discount);
+app.use("/api/v1/account", account);
+app.use("/api/v1/link_account", paymentTypeAccount);
+app.use("/api/v1/payment_records", paymentRecords);
+app.use("/api/v1/receipt_records", receipt_records);
+app.use("/api/v1/transaction_records", transaction_records);
+
+
+
+
 
 
 

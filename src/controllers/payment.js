@@ -3,13 +3,14 @@ const { StatusCodes } = require("http-status-codes");
 const {
   Payment,
   Student,
-  Class,
+  Transaction,
   Session,
   Term,
   Enrollment,
   PaymentType,
   OutstandingBalance,
   Receipt,
+  sequelize,
 } = require("../../models");
 const { Op } = require("sequelize");
 
@@ -26,6 +27,7 @@ const {
 } = require("../services/determineSessionAndTerm");
 const { getReceiptData } = require("../services/getReceiptData");
 const { generateReceiptNumber } = require("../services/generateReceiptNumber");
+const { updateAccountBalance } = require("../services/updateAccountBalance");
 
 const { BadRequestError, NotFoundError } = require("../errors");
 
@@ -46,52 +48,102 @@ const create_Process_Payment = async (req, res) => {
     );
   }
 
+  // Retrieve the student's enrollment record
+  const enrollmentStudent = await Enrollment.findOne({
+    where: { student_id },
+  });
+
+  if (!enrollmentStudent) {
+    throw new NotFoundError(
+      `Enrollment for student with id ${student_id} not found.`
+    );
+  }
   // Query the Payment table to retrieve the last payment made by the student
   const lastPayment = await Payment.findOne({
-    where: { student_id },
+    where: { student_id, payment_type_id },
     order: [["payment_date", "DESC"]],
   });
 
-  // If there's no last payment, return an error
+  let session_id, term_id;
+
   if (!lastPayment) {
-    throw new BadRequestError(
-      "No previous payments available to determine session and term."
-    );
-  }
+    // If there are no previous payments, determine session and term based on enrollment
+    const studentEnrollment = await Enrollment.findOne({
+      where: { student_id },
+      order: [["createdAt", "ASC"]],
+    });
 
-  // Determine session_id and term_id
-  const { session_id, term_id } = await determineSessionAndTerm(
-    student_id,
-    lastPayment
-  );
+    session_id = studentEnrollment.session_id;
+    term_id = studentEnrollment.term_id;
 
-  // Handle outstanding balances and get the remaining amount
-  let remainingAmount = amount;
-  if (lastPayment && lastPayment.payment_type_id === payment_type_id) {
-    remainingAmount = await handleOutstandingBalances(
+  } else {
+    // Determine session_id and term_id based on the last payment
+    ({ session_id, term_id } = await determineSessionAndTerm(
       student_id,
-      payment_type_id,
-      amount,
-      lastPayment.session_id,
-      lastPayment.term_id,
-      amount_type
-    );
+      lastPayment
+    ));
   }
 
+
+  // Retrieve session and term information
+  const session = await Session.findByPk(session_id);
+  const term = await Term.findByPk(term_id);
+
+  // Fetch additional payment type information
   const paymentTypeAmount = paymentType.amount;
 
-  let paymentReceipt;
+  // Initialize remainingAmount before the if block
+  let remainingAmount = amount;
 
-  // fetch receipt in the payment receipt 
+  // Handle outstanding balances and get the deducted amount and remaining amount
+  const { deductedAmount, remainingAmount: remaining } =
+    await handleOutstandingBalances(student_id, payment_type_id, amount);
 
-  const enrollmentStudent = await Enrollment.findByPk(student_id);
+  remainingAmount = remaining; // Update remainingAmount with the value from handleOutstandingBalances
 
-  // Generate receipt numbers for payment
-  const receiptNumber = await generateReceiptNumber();
+  let payment;
+  let paymentReceipts = [];
+
+  // Create payment for the deducted amount if any
+  if (deductedAmount > 0) {
+    payment = await Payment.create({
+      student_id,
+      payment_type_id,
+      amount: deductedAmount,
+      session_id: lastPayment ? lastPayment.session_id : "null",
+      term_id: lastPayment ? lastPayment.term_id : "null",
+      amount_type,
+      regular_payment: false,
+    });
+    // Create receipts for payments
+    const paymentReceipt = await Receipt.create({
+      receipt_number: await generateReceiptNumber(),
+      student_id,
+      payment_id: payment ? payment.id : "null",
+      discount_id: null,
+      outstanding_id: null,
+      class_id: enrollmentStudent ? enrollmentStudent.id : "null",
+      amount_paid: deductedAmount,
+    });
+
+    await Transaction.create({
+      amount: paymentReceipt.amount_paid,
+      description: `Outstanding Payment for Session: ${session.session_name}, Term: ${term.term_name}`,
+      transaction_type: "Income",
+      transaction_status: "Completed",
+      payment_method: payment.amount_type,
+      receipt_id: paymentReceipt.id,
+      payment_type_id,
+      related_entity_id: student_id,
+    });
+
+    await updateAccountBalance(payment_type_id, paymentReceipt.amount_paid);
+
+    paymentReceipts.push(paymentReceipt);
+  }
 
   // If there's a remaining amount after deducting outstanding balances
-  if (remainingAmount > 0) {
-    let payment;
+  if (remainingAmount !== 0) {
     // Check if the remaining amount is sufficient to pay for another term
     if (remainingAmount >= paymentTypeAmount) {
       // Pay for the current term
@@ -106,15 +158,31 @@ const create_Process_Payment = async (req, res) => {
       });
 
       // Create receipts for payments
-      paymentReceipt = await Receipt.create({
-        receipt_number: receiptNumber,
+
+      const paymentReceipt = await Receipt.create({
+        receipt_number: await generateReceiptNumber(),
         student_id,
         payment_id: payment.id,
         discount_id: null,
         outstanding_id: null,
-        class_id: enrollmentStudent.id,
+        class_id: enrollmentStudent ? enrollmentStudent.id : null,
         amount_paid: paymentTypeAmount,
       });
+
+      await Transaction.create({
+        amount: paymentReceipt.amount_paid,
+        description: paymentType.payment_type_name,
+        transaction_type: "Income",
+        transaction_status: "Completed",
+        payment_method: payment.amount_type,
+        receipt_id: paymentReceipt.id,
+        payment_type_id,
+        related_entity_id: student_id,
+      });
+
+      await updateAccountBalance(payment_type_id, paymentReceipt.amount_paid);
+
+      paymentReceipts.push(paymentReceipt);
     } else {
       // Pay for the remaining amount in another term and move the rest to outstanding
       const remainingTermAmount = paymentTypeAmount - remainingAmount;
@@ -137,20 +205,37 @@ const create_Process_Payment = async (req, res) => {
       });
 
       // Create receipts for payments
-      paymentReceipt = await Receipt.create({
-        receipt_number: receiptNumber,
+      const paymentReceipt = await Receipt.create({
+        receipt_number: await generateReceiptNumber(),
         student_id,
         payment_id: payment.id,
         discount_id: null,
         outstanding_id: studentOutstanding ? studentOutstanding.id : null,
-        class_id: enrollmentStudent.id,
+        class_id: enrollmentStudent ? enrollmentStudent.id : null,
         amount_paid: remainingAmount,
       });
+      await Transaction.create({
+        amount: paymentReceipt.amount_paid,
+        description: paymentType.payment_type_name,
+        transaction_type: "Income",
+        transaction_status: "Completed",
+        payment_method: payment.amount_type,
+        receipt_id: paymentReceipt.id,
+        payment_type_id,
+        related_entity_id: student_id,
+      });
+
+      await updateAccountBalance(payment_type_id, paymentReceipt.amount_paid);
+      paymentReceipts.push(paymentReceipt);
     }
   }
 
-  // Fetch additional information related to receipt
-  const receiptData = await getReceiptData(paymentReceipt);
+  // Fetch receipt data for each payment receipt
+  const receiptData = [];
+  for (const receipt of paymentReceipts) {
+    const data = await getReceiptData(receipt);
+    receiptData.push(data);
+  }
 
   const response = {
     success: true,
@@ -346,10 +431,40 @@ const delete_Process_Payment = async (req, res) => {
   });
 };
 
+const getStudentsWithPayments = async (req, res) => {
+  const { session_id, term_id } = req.query;
+
+ // Construct the where condition based on the provided session_id and term_id
+    const whereCondition = {};
+    if (session_id && term_id) {
+      whereCondition[Op.or] = [{ session_id }, { term_id }];
+    } else if (session_id) {
+      whereCondition.session_id = session_id;
+    } else if (term_id) {
+      whereCondition.term_id = term_id;
+    }
+
+    // Retrieve students with payments based on the constructed where condition
+    const studentsWithPayments = await Student.findAll({
+      include: [
+        {
+          model: Payment,
+          where: whereCondition,
+          required: true, // Ensures that only students with payments are included
+        },
+      ],
+    });
+
+    // Send the response with studentsWithPayments
+      res.status(StatusCodes.CREATED).json(studentsWithPayments);
+
+};
+
 module.exports = {
   create_Process_Payment,
   getAll_Process_Payment,
   get_Process_Payment,
   update_Process_Payment,
   delete_Process_Payment,
+  getStudentsWithPayments,
 };

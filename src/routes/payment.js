@@ -7,12 +7,14 @@ const {
   get_Process_Payment,
   update_Process_Payment,
   delete_Process_Payment,
+  getStudentsWithPayments,
 } = require("../controllers/payment");
 
 router
   .route("/")
   .post(validateCreatePayment, create_Process_Payment)
-  .get(getAll_Process_Payment);
+  .get(getAll_Process_Payment)
+  .get(getStudentsWithPayments);
 
 router
   .route("/:id")

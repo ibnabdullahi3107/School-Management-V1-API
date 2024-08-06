@@ -9,7 +9,10 @@ const {
 
 const { generateReceiptNumber } = require("../services/generateReceiptNumber");
 const { getReceiptData } = require("../services/getReceiptData");
-const { generateRegistrationNumber } = require("../services/generateRegistrationNumber");
+const {
+  generateRegistrationNumber,
+} = require("../services/generateRegistrationNumber");
+const { updateAccountBalance } = require("../services/updateAccountBalance");
 
 const {
   Student,
@@ -22,11 +25,11 @@ const {
   OutstandingBalance,
   Discount,
   Receipt,
+  Transaction,
 } = require("../../models");
 const { updateStudentSchema } = require("../validations/studentValidation");
 
 const { NotFoundError, BadRequestError } = require("../errors");
-
 
 const createStudent = async (req, res) => {
   const {
@@ -144,13 +147,16 @@ const createStudent = async (req, res) => {
     class_id,
   });
 
+  
+  
   let registrationPayment, studentDiscount, studentOutstanding, remainingAmount;
-
-  if (amount) {
+  
+  const AmountWithDiscount = amount + discount_amount;
+  if (AmountWithDiscount) {
     // Check if the provided amount is enough to cover the registration fee
-    if (amount >= registrationPaymentType.amount) {
+    if (AmountWithDiscount >= registrationPaymentType.amount) {
       // Deduct the registration fee from the provided amount
-      remainingAmount = amount - registrationPaymentType.amount;
+      remainingAmount = AmountWithDiscount - registrationPaymentType.amount;
 
       // Pay the school registration
       registrationPayment = await Payment.create({
@@ -162,10 +168,8 @@ const createStudent = async (req, res) => {
         term_id,
       });
 
-      const remainingAmountWithDiscount = remainingAmount + discount_amount;
-
       // Check if there's enough remaining amount to cover the school fees
-      if (remainingAmountWithDiscount >= schoolFeesPaymentType.amount) {
+      if (remainingAmount >= schoolFeesPaymentType.amount) {
         // Pay the school fees
         schoolFeesPayment = await Payment.create({
           student_id: newStudent.id,
@@ -185,9 +189,7 @@ const createStudent = async (req, res) => {
             payment_type_id: schoolFeesPaymentType.payment_type_id,
             discount_amount,
           });
-
         }
-
       } else {
         // Add the outstanding balance for the remaining amount in school fees
         schoolFeesPayment = await Payment.create({
@@ -199,21 +201,20 @@ const createStudent = async (req, res) => {
           term_id,
         });
 
-         if (!discount_amount <= 0) {
-           // Create the discount
-           studentDiscount = await Discount.create({
-             student_id: newStudent.id,
-             session_id,
-             term_id,
-             payment_type_id: schoolFeesPaymentType.payment_type_id,
-             discount_amount,
-           });
-
-         }
+        if (!discount_amount <= 0) {
+          // Create the discount
+          studentDiscount = await Discount.create({
+            student_id: newStudent.id,
+            session_id,
+            term_id,
+            payment_type_id: schoolFeesPaymentType.payment_type_id,
+            discount_amount,
+          });
+        }
 
         // Record the remaining amount as an outstanding balance for the school fees
         const outstandingAmount =
-          schoolFeesPaymentType.amount - remainingAmountWithDiscount;
+          schoolFeesPaymentType.amount - remainingAmount;
         studentOutstanding = await OutstandingBalance.create({
           student_id: newStudent.id,
           term_id,
@@ -234,11 +235,10 @@ const createStudent = async (req, res) => {
   }
 
   // Generate receipt numbers for registration and school fees payments
-  const registrationReceiptNumber = await generateReceiptNumber();
 
   // Create receipts for registration and school fees payments
   const registrationReceipt = await Receipt.create({
-    receipt_number: registrationReceiptNumber,
+    receipt_number: await generateReceiptNumber(),
     student_id: newStudent.id,
     payment_id: registrationPayment.id,
     discount_id: studentDiscount ? studentDiscount.discount_id : null,
@@ -249,20 +249,52 @@ const createStudent = async (req, res) => {
 
   const registrationReceiptData = await getReceiptData(registrationReceipt);
 
-  const schoolFeesReceiptNumber = await generateReceiptNumber();
+  await Transaction.create({
+    amount: registrationReceipt.amount_paid,
+    description: "Registration Payment",
+    transaction_type: "Income",
+    transaction_status: "Completed",
+    payment_method: registrationPayment.amount_type,
+    receipt_id: registrationReceipt.id,
+    payment_type_id: registrationPaymentType.payment_type_id,
+    related_entity_id: newStudent.id,
+  });
+
+    await updateAccountBalance(
+      registrationPaymentType.payment_type_id,
+      registrationReceipt.amount_paid
+    );
+
+
 
   const schoolFeesReceipt = await Receipt.create({
-    receipt_number: schoolFeesReceiptNumber,
+    receipt_number: await generateReceiptNumber(),
     student_id: newStudent.id,
     payment_id: schoolFeesPayment.id,
     discount_id: studentDiscount ? studentDiscount.discount_id : null,
     outstanding_id: studentOutstanding ? studentOutstanding.id : null,
     class_id: newEnrollmentStudent.id,
-    amount_paid: remainingAmount,
+    amount_paid: remainingAmount - discount_amount,
   });
 
   // Fetch additional information related to the registration receipt
   const schoolFeesReceiptData = await getReceiptData(schoolFeesReceipt);
+  await Transaction.create({
+    amount: schoolFeesReceipt.amount_paid,
+    description: "School Fees Payment",
+    transaction_type: "Income",
+    transaction_status: "Completed",
+    payment_method: schoolFeesPayment.amount_type,
+    receipt_id: schoolFeesReceipt.id,
+    payment_type_id: schoolFeesPaymentType.payment_type_id,
+    related_entity_id: newStudent.id,
+  });
+
+    await updateAccountBalance(
+      schoolFeesPaymentType.payment_type_id,
+      schoolFeesReceipt.amount_paid
+    );
+  
 
   // Prepare the response object
   const response = {

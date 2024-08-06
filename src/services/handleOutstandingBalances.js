@@ -3,91 +3,74 @@ const {
   OutstandingBalance,
   Receipt,
   Enrollment,
+  sequelize,
 } = require("../../models");
-const { generateReceiptNumber } = require("../services/generateReceiptNumber");
 
 const handleOutstandingBalances = async (
   student_id,
   payment_type_id,
   amount,
-  session_id,
-  term_id,
-  amount_type
 ) => {
-  let remainingAmount = amount;
-  let newPayment;
-  let newPaymentReceipt;
+  let transaction;
 
-  // Retrieve outstanding balances for the same payment type
-  const outstandingBalances = await OutstandingBalance.findAll({
-    where: {
-      student_id,
-      payment_type_id,
-    },
-  });
+  try {
+    let collectedAmount = amount;
+    let deductedAmount = 0;
 
-  const enrollmentStudent = await Enrollment.findByPk(student_id);
-  const receiptNumber = await generateReceiptNumber();
+    // Begin database transaction
+    transaction = await sequelize.transaction();
 
-  for (const outstandingBalance  of outstandingBalances) {
-    const balanceAmount = outstandingBalance.amount;
+    // Retrieve outstanding balances for the same payment type
+    const outstandingBalance = await OutstandingBalance.findOne({
+      where: {
+        student_id,
+        payment_type_id,
+      },
+      transaction, // Pass transaction to query
+    });
 
-    if (balanceAmount <= remainingAmount) {
-      remainingAmount -= balanceAmount;
-      await outstandingBalance.destroy();
+    // If outstanding balance exists, handle it
+    if (outstandingBalance) {
+      const outstandingAmount = outstandingBalance.amount;
+
+      // Check if collectedAmount covers the outstandingAmount fully
+      if (collectedAmount >= outstandingAmount) {
+        deductedAmount = outstandingAmount; // Deduct outstandingAmount from collectedAmount
+        collectedAmount -= deductedAmount; // Update remaining collectedAmount
+        await outstandingBalance.destroy({ transaction });
+      } else {
+        deductedAmount = collectedAmount; // Deduct collectedAmount
+        collectedAmount = 0; // No remaining amount after deduction
+        await outstandingBalance.decrement("amount", {
+          by: deductedAmount,
+          transaction,
+        });
+      }
+
+      // Commit the transaction
+      await transaction.commit();
+
+      return {
+        deductedAmount,
+        remainingAmount: collectedAmount,
+      };
     } else {
-      await outstandingBalance.decrement("amount", { by: remainingAmount });
-      remainingAmount = 0;
+      // Commit the transaction
+      await transaction.commit();
+
+      // No outstanding balance found, return the collected amount
+      return {
+        deductedAmount: 0,
+        remainingAmount: collectedAmount,
+      };
     }
-
-    const payment = await Payment.create({
-      student_id,
-      payment_type_id,
-      amount: balanceAmount,
-      session_id,
-      term_id,
-      amount_type,
-      regular_payment: false,
-    });
-
-    const paymentReceipt = await Receipt.create({
-      receipt_number: receiptNumber,
-      student_id,
-      payment_id: payment.id,
-      discount_id: null,
-      outstanding_id: outstandingBalance ? outstandingBalance.id : null,
-      class_id: enrollmentStudent.id,
-      amount_paid: balanceAmount,
-    });
-
-    if (remainingAmount === 0) {
-      return remainingAmount;
+  } catch (error) {
+    // Rollback the transaction in case of any error
+    if (transaction) {
+      await transaction.rollback();
     }
+    throw error; // Rethrow the error for higher-level handling
   }
-
-  if (remainingAmount > 0) {
-    newPayment = await Payment.create({
-      student_id,
-      payment_type_id,
-      amount: remainingAmount,
-      session_id,
-      term_id,
-      amount_type,
-      regular_payment: true,
-    });
-
-    newPaymentReceipt = await Receipt.create({
-      receipt_number: receiptNumber,
-      student_id,
-      payment_id: newPayment.id,
-      discount_id: null,
-      outstanding_id: null,
-      class_id: enrollmentStudent.id,
-      amount_paid: remainingAmount,
-    });
-  }
-
-  return remainingAmount;
 };
 
 module.exports = {
